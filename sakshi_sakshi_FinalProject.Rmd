@@ -1,0 +1,191 @@
+---
+title: "BAE 590 Final Project: Analysis of Dissolved Oxygen levels in Wake County Water Resources"
+author: "Sakshi Sakshi"
+date: "Fall 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+This project focuses on determining the changes in the trends of Dissolved Oxygen Levels, in water bodies across Wake County. This data has been downloaded from the National Water Quality Monitoring Council (NWQMC). The original dataset has 63 columns and 386794 observations. I decided to focus on just the dissolved oxygen levels.In this analysis, I have performed changepoint analysis, to **determine how the oxygen levels have changed over the years**. 
+
+The dissolved oxygen is an important factor to determine the quality of water. As the dissolved oxygen decreases, the water becomes inhabitable for aquatic life. This could be a result of excess algal bloom, on whose decomposition, the bacteria consume a lot of oxygen, resulting in a reduction in levels of oxygen. The excess algal bloom is a result of excessive use of fertilizers in the crops. Hence, monitoring the oxygen levels is advised to ensure the health of aquatic life is also good.
+
+The dissolved oxygen is also more in colder temperatures, and reduces as the temperature of water increases. On the other hand, if the concentration of oxygen is more in water, there is lesser concentrations of other minerals, which could be required.
+
+
+## Dataset Description
+
+I selected the following columns to perform the analysis (the column names have been 'cleaned up' by the package janitor):  
+
+* activity_start_date
+* activity_start_time_time
+* characteristic_name
+* result_measure_value
+* result_measure_measure_unit_code
+
+The dataset contains data from the year 1973 to 2020. The first two columns contain information about the dates on which the measurement of corresponding characteristics started, characteristics consist of various factors as given below (10 factors are given, there are 1546 characteristics in total), along with their corresponding measuring units:
+```{r data_desc, echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+library(tidyverse)
+library(janitor)
+
+wake_data <- read_csv("data/result.csv") %>% clean_names()
+wake_data %>%
+  distinct(characteristic_name, result_measure_measure_unit_code) %>%
+  head(10) %>%
+  kable(col.names = c("Characteristics", "Unit of Measurement"), caption = "Characteristics and their corresponding Units of Measurement")
+```
+
+Change in temperature over the years, an example of the data recorded:
+```{r example data_wrangle, warning=FALSE, message=FALSE, fig.align='center'}
+library(tidyr)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+
+# reading the data
+wake_data <- read_csv("data/result.csv") %>% clean_names()
+
+# selecting the relevant columns and removing NAs
+wake_mod <- wake_data %>%
+  select(activity_start_date, activity_start_time_time, 
+         characteristic_name, result_measure_value, 
+         result_measure_measure_unit_code) %>%
+  na.omit()
+
+# filtering out temperature data
+wake_temp <- wake_mod %>%
+  filter(characteristic_name == 'Temperature, water') %>%
+  group_by(activity_start_date) %>%
+  summarise(activity_start_date, result_measure_value = mean(result_measure_value))
+
+wake_temp %>%
+  ggplot(mapping = aes(activity_start_date, result_measure_value)) +
+  geom_line() +
+  theme_bw() +
+  labs(title = "Change in the Temperature of water over the years",
+       caption = "Data: Water Quality Data, NWQMC") +
+  scale_y_continuous("Measured Value (deg. C)") +
+  scale_x_date("Years")
+```
+
+
+## Methods
+
+### 1. **Data tidying and wrangling**: 
+The input data files have been formatted to incorporate the relevant data. The first task was to select the relevant columns as given above. The second task was to filter out the relevant data for this analysis. Out of 63 columns, I selected 5 relevant columns. Then, I filtered out the data for the characteristic 'Oxygen' with unit 'mg/l'. 
+
+The data had observations taken at different times of a day. I have averaged out the observations, to display the data for each day. The data is henceforth, converted to a daily time- series data. The function group_by() is used to aggregate data, and summarise() is used to take the average of daily observations.
+
+The following code has been used to wrangle the data:
+```{r data_wrangle, warning=FALSE, message=FALSE}
+library(tidyr)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+
+# reading the data
+wake_data <- read_csv("data/result.csv") %>% clean_names()
+
+# selecting the relevant columns and removing NAs
+wake_mod <- wake_data %>%
+  select(activity_start_date, activity_start_time_time, 
+         characteristic_name, result_measure_value, 
+         result_measure_measure_unit_code) %>%
+  na.omit()
+
+# filtering out the Oxygen measurements in mg/l
+wake_oxy <- wake_mod %>%
+  filter(characteristic_name == 'Oxygen' & result_measure_measure_unit_code == 'mg/l') %>%
+  group_by(activity_start_date) %>%
+  summarise(activity_start_date, result_measure_value = mean(result_measure_value))
+```
+
+### 2. **Statistical Analysis**: 
+I performed change detection analysis for the given data. Change detection or change point detection tries to identify the times when the probability distribution of time series changes. This analysis determines whether and when the behavior of series changes significantly.
+
+I have used the 'changepoint' library to conduct the analysis. At first, I observed the time series visualization as given below:
+
+```{r trend_oxy, message=FALSE, warning=FALSE, fig.align='center'}
+library(ggplot2)
+
+# plotting
+wake_oxy %>%
+  ggplot(mapping = aes(activity_start_date, result_measure_value)) +
+  theme_bw() +
+  geom_line() +
+  labs(title = "Change in the dissolved oxygen levels over the years",
+       caption = "Data: Water Quality Data, NWQMC") +
+  scale_y_continuous("Measured Value (mg/l)") +
+  scale_x_date("Years")
+```
+
+
+## Code and analysis for Change point detection
+#### The following code has been used to plot and perform changepoint analysis on the given data
+```{r analyse, message=FALSE, warning=FALSE, fig.align='center'}
+library(changepoint)
+
+# change point analysis
+# a Looking for one change point using the "AMOC" method
+oxy_n.amoc <- cpt.mean(wake_oxy$result_measure_value, method = "AMOC")
+cpts(oxy_n.amoc)  # change points
+oxy.cusum <- cpt.mean(wake_oxy$result_measure_value, pen.value = 1,
+                      penalty = "Manual", test.stat = 'CUSUM')
+plot(oxy_n.amoc) # visualization of the data
+
+# exact date for the changepoint
+wake_oxy$activity_start_date[cpts(oxy_n.amoc)]
+```
+ From the above plot, we can observe that there has been a decrease in the dissolved oxygen level.
+ 
+```{r variance_change, message=FALSE, warning=FALSE, fig.align='center'}
+# b Looking at the changes in the variance
+oxy_v.man <- cpt.var(wake_oxy$result_measure_value, method = 'PELT',
+                     penalty = 'Manual', pen.value = '2*log(n)')
+cpts(oxy_v.man) # change points
+param.est(oxy_v.man) # estimated change points
+
+plot(oxy_v.man, cpt.width=2) # visualization of change points
+wake_oxy$activity_start_date[cpts(oxy_v.man)] # exact dates of the change points
+```
+
+The points above depict the changes in the variance of the data. There are a lot of change points observed in the variance of the data. 
+
+```{r mean_var, message=FALSE, warning=FALSE, fig.align='center'}
+# c Changes in mean and variance 
+oxy_mv.binseg <- cpt.meanvar(wake_oxy$result_measure_value, test.stat = "Exponential", 
+                             method = 'BinSeg', Q=20, penalty = "SIC")
+cpts(oxy_mv.binseg) # change points
+plot(oxy_mv.binseg, cpt.width=3, cpt.col='blue') # visualizations
+wake_oxy$activity_start_date[cpts(oxy_mv.binseg)] # date of changepoint occurance
+
+```
+
+ From the above plot, we can observe that there has been a decrease in the dissolved oxygen level.
+ 
+Lets observe the dissolved oxygen levels averaged over the years:
+```{r yearly_trend, message=FALSE, warning=FALSE, fig.align='center'}
+yearly_oxy <- wake_mod %>%
+  filter(characteristic_name == 'Oxygen' & result_measure_measure_unit_code == 'mg/l') %>%
+  group_by(year(activity_start_date)) %>%
+  summarise(result_measure_value = mean(result_measure_value))
+
+# visualization
+yearly_oxy %>%
+  ggplot(mapping = aes(`year(activity_start_date)`, result_measure_value)) +
+  geom_line() +
+  theme_bw() +
+  scale_y_continuous("Average Oxygen Level (mg/l)") +
+  labs(x="Years",
+       title = "Average dissolved oxygen levels over the years")
+```
+
+## Discussion
+From the above graphs, we can see that the average levels of dissolved oxygen have reduced over the years. This could be a result of the increasing use of fertilizers over time. The nitrates in the fertilizers boost algal growth in water bodies, which in turn, reduces the dissolved oxygen level in the water. The Dissolved Oxygen levels below 3 mg/L are of concern and waters with levels below 1 mg/L are considered hypoxic and usually devoid of life. 
+
+But the dissolved oxygen doesn't seem to have reached alarming levels. The water is still good enough for the aquatic life to survive. But, the use of fertilizers should be kept in check to maintain that.
